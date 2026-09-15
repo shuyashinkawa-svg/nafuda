@@ -66,6 +66,12 @@
   ul.log li span:last-child{color:var(--mute); white-space:nowrap;}
 
   .bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:18px;}
+  .cands{display:flex; flex-direction:column; gap:8px; margin-top:12px;}
+  button.cand{display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+    width:100%; background:transparent; color:var(--ink); border:1px solid var(--ink);
+    padding:14px 16px; text-align:left;}
+  .cand .cname{font-size:19px; font-weight:700;}
+  .cand .cgrp{font-size:17px; font-weight:700; color:var(--accent); white-space:nowrap;}
   .raw{font-size:12px; color:var(--mute); margin:8px 0 0; min-height:1.4em;
        font-family:ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all;}
   .privacy{font-size:12px; color:var(--mute); border-top:1px solid var(--faint); margin-top:26px; padding-top:12px;}
@@ -218,7 +224,23 @@ function buildRoster(ws){
     names: b.flatMap(c => byCol.get(c)), on:true })) };
 }
 
-/* ---------- あいまい照合 ---------- */
+/* ---------- あいまい照合 ----------
+   考え方：完全一致は求めない。名簿の中で「一番似ている人」を点数で選ぶ。
+   珍しい文字（名簿で1人しか使っていない字）ほど、合ったときの加点を大きくする。
+   ただし珍しい文字が1つ合っただけで確定はしない。あくまで点数への重み。      */
+let IDF = new Map();          // 文字 → その字の珍しさ
+function buildIdf(){
+  IDF = new Map();
+  const N = ROSTER.length || 1;
+  const df = new Map();
+  for (const p of ROSTER){
+    for (const ch of new Set(p.k)) df.set(ch, (df.get(ch)||0) + 1);
+  }
+  for (const [ch,n] of df) IDF.set(ch, Math.log(N / n) + 0.5);
+}
+const MAXIDF = () => Math.log((ROSTER.length||1)) + 0.5;
+function idf(ch){ return IDF.has(ch) ? IDF.get(ch) : MAXIDF(); }
+
 function bigrams(s){ const o=[]; for(let i=0;i<s.length-1;i++) o.push(s.slice(i,i+2)); return o; }
 function dice(a,b){
   if(!a.length||!b.length) return 0;
@@ -226,22 +248,38 @@ function dice(a,b){
   let hit=0; b.forEach(x=>{const n=m.get(x)||0; if(n>0){hit++; m.set(x,n-1);} });
   return 2*hit/(a.length+b.length);
 }
+/* 珍しさで重みを付けた文字の一致率 */
+function diceWeighted(q,t){
+  const m=new Map(); for(const ch of q) m.set(ch,(m.get(ch)||0)+1);
+  let hit=0;
+  for(const ch of t){ const n=m.get(ch)||0; if(n>0){ hit += idf(ch); m.set(ch,n-1); } }
+  let sq=0, st=0;
+  for(const ch of q) sq += idf(ch);
+  for(const ch of t) st += idf(ch);
+  return (sq+st) ? 2*hit/(sq+st) : 0;
+}
 function score(q,t){
-  let s = 0.45*dice([...q],[...t]) + 0.55*dice(bigrams(q),bigrams(t));
+  /* 短い名前は2文字の並びが取れないので、文字そのものの一致を重く見る */
+  const short = Math.min(q.length, t.length) <= 3;
+  const wc = short ? 0.78 : 0.55;
+  let s = wc*diceWeighted(q,t) + (1-wc)*dice(bigrams(q),bigrams(t));
   if (q[0] && q[0]===t[0]) s += 0.06;
   return Math.min(s,1);
 }
-function match(raw){
+
+const AUTO_MIN = 0.60;   // これ以上かつ2位と差があれば自動で確定
+const AUTO_GAP = 0.12;
+const CAND_MIN = 0.38;   // これ以上なら候補として見せる
+
+/* 上位の候補を返す。1位が十分強ければ decided:true */
+function rank(raw){
   const q = norm(raw);
   if (q.length < 2) return null;
-  let best=null, second=0;
-  for (const p of ROSTER){
-    const s = score(q,p.k);
-    if (!best || s > best.s){ second = best ? best.s : second; best = {s,p}; }
-    else if (s > second) second = s;
-  }
-  if (!best || best.s < 0.55 || best.s - second < 0.12) return null;
-  return { name:best.p.n, group:best.p.g, s:best.s };
+  const all = ROSTER.map(p => ({ p, s: score(q, p.k) })).sort((a,b) => b.s - a.s);
+  const top = all.slice(0,3).filter(x => x.s >= CAND_MIN);
+  if (!top.length) return null;
+  const decided = top[0].s >= AUTO_MIN && (top.length < 2 || top[0].s - top[1].s >= AUTO_GAP);
+  return { decided, list: top.map(x => ({ name:x.p.n, group:x.p.g, s:x.s })) };
 }
 
 /* =========================================================
@@ -304,11 +342,13 @@ $('save').addEventListener('click', () => {
 let ROSTER=[], SEEN=new Map(), BUSY=false, WORKER=null;
 let RECENT=[];      // 直近5コマの照合結果（名前 または null）
 let SHOWN=null;     // いま画面に出している人
+let PICKING=false;  // 候補を出して、人の選択を待っている最中か
 
 function bootScan(payload){
   $('setup').classList.add('hidden');
   $('scan').classList.remove('hidden');
   ROSTER = payload.p.map(([n,g]) => ({ n, g, k:norm(n) }));
+  buildIdf();
   const cols = new Set(ROSTER.map(p=>p.g));
   $('scansub').textContent = `${payload.t}／${ROSTER.length}人・${cols.size}列`;
   $('privacy').textContent =
@@ -370,17 +410,21 @@ async function loop(){
       if(cv){
         const { data } = await WORKER.recognize(cv);
         const line = (data.text||'').split('\n').map(s=>s.trim()).filter(Boolean)[0] || '';
-        const m = match(line);
         $('raw').textContent = 'いま読めている文字：' + (line || '—');
+        const r = rank(line);
+        const topName = r ? r.list[0].name : null;
 
-        /* 直近5コマのうち2回同じ人なら確定する。
-           1コマ読み損ねても数え直しにならないので、途切れても前へ進む。
-           はっきり読めた（0.82以上）ときは1コマで確定。 */
-        RECENT.push(m ? m.name : null);
+        /* 直近5コマのうち2回、同じ人が1位に来たら動く。
+           1コマ読み損ねても数え直しにならない。1コマだけでの確定はしない。 */
+        RECENT.push(topName);
         if (RECENT.length > 5) RECENT.shift();
-        if (m && m.name !== SHOWN){
-          const hits = RECENT.filter(x => x === m.name).length;
-          if (hits >= 2 || m.s >= 0.82){ SHOWN = m.name; show(m); }
+
+        if (r && !PICKING && topName !== SHOWN){
+          const hits = RECENT.filter(x => x === topName).length;
+          if (hits >= 2){
+            if (r.decided){ SHOWN = topName; show(r.list[0]); }
+            else { showCandidates(r.list); }
+          }
         }
       }
     }catch(e){ /* 1コマ失敗しても続ける */ }
@@ -403,9 +447,24 @@ function show(m){
   renderLog();
 }
 
+/* 決めきれないとき：候補を出して、人に選んでもらう */
+function showCandidates(list){
+  PICKING = true;
+  $('result').innerHTML = `
+    <div class="col-label">どれですか</div>
+    <div class="cands">${list.map((c,i)=>`
+      <button class="cand" data-i="${i}">
+        <span class="cname">${c.name}</span><span class="cgrp">${c.group}列</span>
+      </button>`).join('')}</div>`;
+  $('result').querySelectorAll('.cand').forEach(b =>
+    b.addEventListener('click', () => { PICKING=false; SHOWN=list[+b.dataset.i].name; show(list[+b.dataset.i]); }));
+  $('next').classList.remove('hidden');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
 /* 同じ名札をもう一度読ませたいときの逃げ道 */
 $('next').addEventListener('click', () => {
-  SHOWN = null; RECENT = [];
+  SHOWN = null; RECENT = []; PICKING = false;
   $('result').innerHTML = '<div class="idle">枠の中に名札を入れてください</div>';
 });
 
