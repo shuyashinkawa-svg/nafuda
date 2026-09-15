@@ -278,7 +278,10 @@ function rank(raw){
   const all = ROSTER.map(p => ({ p, s: score(q, p.k) })).sort((a,b) => b.s - a.s);
   const top = all.slice(0,3).filter(x => x.s >= CAND_MIN);
   if (!top.length) return null;
-  const decided = top[0].s >= AUTO_MIN && (top.length < 2 || top[0].s - top[1].s >= AUTO_GAP);
+  /* 候補が1人しか残らないときは、点数が基準に届かなくても確定してよい。
+     他に近い人がいないということなので、聞いても選択肢が1つしかない。 */
+  const decided = top.length === 1
+    || (top[0].s >= AUTO_MIN && top[0].s - top[1].s >= AUTO_GAP);
   return { decided, list: top.map(x => ({ name:x.p.n, group:x.p.g, s:x.s })) };
 }
 
@@ -450,8 +453,11 @@ function show(m){
 /* 決めきれないとき：候補を出して、人に選んでもらう */
 function showCandidates(list){
   PICKING = true;
+  /* 候補が1人しか残らないときは「選ばせる」のではなく「確認する」画面にする。
+     点数が自動確定の基準に届かなかっただけで、選択肢が壊れているわけではない。 */
+  const ask = list.length >= 2 ? 'どれですか' : 'この人で合っていますか';
   $('result').innerHTML = `
-    <div class="col-label">どれですか</div>
+    <div class="col-label">${ask}</div>
     <div class="cands">${list.map((c,i)=>`
       <button class="cand" data-i="${i}">
         <span class="cname">${c.name}</span><span class="cgrp">${c.group}列</span>
