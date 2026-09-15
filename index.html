@@ -1,0 +1,421 @@
+<title>名札スキャン</title>
+<style>
+  :root{
+    --ink:#111111; --paper:#ffffff; --mute:#6b6b6b; --faint:#e2e2e0;
+    --accent:#d94f04; --field:#f5f5f3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#f2f2f0; --paper:#141414; --mute:#a0a0a0; --faint:#303030;
+      --accent:#ff7a33; --field:#1e1e1e;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#f2f2f0; --paper:#141414; --mute:#a0a0a0; --faint:#303030;
+    --accent:#ff7a33; --field:#1e1e1e;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper); color:var(--ink); margin:0;
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,Meiryo,system-ui,sans-serif;
+    font-size:15px; line-height:1.7;}
+  .wrap{max-width:680px; margin:0 auto; padding:0 16px; padding-block:22px 56px;}
+
+  h1{font-size:18px; letter-spacing:.06em; margin:0; font-weight:700;}
+  .sub{color:var(--mute); font-size:13px; margin:4px 0 22px;}
+  h2{font-size:15px; margin:0 0 10px; font-weight:700; letter-spacing:.03em;}
+  .hint{font-size:13px; color:var(--mute); margin:8px 0 0;}
+  .step{border:1px solid var(--ink); padding:16px; margin-bottom:16px;}
+  .stepno{font-size:11px; letter-spacing:.16em; color:var(--mute); display:block; margin-bottom:6px;}
+
+  button{font:inherit; font-weight:700; color:var(--paper); background:var(--ink);
+    border:1px solid var(--ink); padding:12px 20px; cursor:pointer; border-radius:0;}
+  button.ghost{background:transparent; color:var(--ink);}
+  button.small{font-size:13px; padding:7px 12px; font-weight:400;}
+  button:disabled{opacity:.35; cursor:default;}
+  input[type=file]{font:inherit; font-size:13px; width:100%; background:var(--field); padding:10px; border:1px solid var(--faint);}
+  input[type=text]{font:inherit; font-size:15px; width:100%; padding:10px; background:var(--field);
+    color:var(--ink); border:1px solid var(--ink); border-radius:0;}
+  select{font:inherit; font-size:14px; padding:9px; width:100%; background:var(--field);
+    color:var(--ink); border:1px solid var(--ink); border-radius:0;}
+
+  .tablebox{overflow-x:auto; margin-top:12px;}
+  table{border-collapse:collapse; width:100%; font-size:13px;}
+  th,td{border:1px solid var(--faint); padding:7px 8px; text-align:left; vertical-align:top;}
+  th{background:var(--field); font-weight:700; white-space:nowrap;}
+  .names{color:var(--mute); font-size:12px;}
+  .warn{border-left:3px solid var(--accent); padding-left:12px; font-size:13px; margin:14px 0 0;}
+
+  .scan{position:relative; background:#000; overflow:hidden; border:1px solid var(--ink);}
+  .scan video{display:block; width:100%; height:auto;}
+  .guide{position:absolute; inset:0; pointer-events:none;}
+  .guide .hole{position:absolute; left:7%; right:7%; top:33%; height:32%;
+    border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.5);}
+  .guide .cap{position:absolute; left:0; right:0; top:calc(33% + 32% + 10px);
+    text-align:center; color:#fff; font-size:12px; letter-spacing:.08em;}
+
+  .result{border:1px solid var(--ink); border-top:none; padding:18px 16px; text-align:center; min-height:148px;}
+  .col-label{font-size:11px; letter-spacing:.2em; color:var(--mute);}
+  .col-num{font-size:76px; line-height:1.05; font-weight:700; color:var(--accent);}
+  .col-num small{font-size:23px; margin-left:2px;}
+  .who{font-size:19px; font-weight:700;}
+  .meta{font-size:12px; color:var(--mute); margin-top:4px;}
+  .idle{color:var(--mute); font-size:14px; padding-top:32px;}
+
+  ul.log{list-style:none; margin:12px 0 0; padding:0; font-size:13px;}
+  ul.log li{display:flex; justify-content:space-between; gap:10px; border-bottom:1px solid var(--faint); padding:6px 2px;}
+  ul.log li span:last-child{color:var(--mute); white-space:nowrap;}
+
+  .bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:18px;}
+  .privacy{font-size:12px; color:var(--mute); border-top:1px solid var(--faint); margin-top:26px; padding-top:12px;}
+  .hidden{display:none}
+</style>
+
+<div class="wrap">
+
+<!-- ========== セットアップ ========== -->
+<section id="setup">
+  <h1>名札スキャン</h1>
+  <p class="sub">はじめに、座席表を1回だけ読み込みます。次からはこの操作は要りません。</p>
+
+  <div class="step">
+    <span class="stepno">STEP 1</span>
+    <h2>座席表のExcelを選ぶ</h2>
+    <input type="file" id="file" accept=".xlsx,.xlsm,.xls,.csv">
+    <p class="hint">ファイルはこの端末の中だけで開きます。どこにも送信されません。</p>
+  </div>
+
+  <div class="step hidden" id="step2">
+    <span class="stepno">STEP 2</span>
+    <h2>シートと列を確かめる</h2>
+    <select id="sheet"></select>
+    <div id="detect"></div>
+    <p style="margin-top:16px"><button id="save" disabled>この内容で使う</button></p>
+  </div>
+</section>
+
+<!-- ========== スキャン ========== -->
+<section id="scan" class="hidden">
+  <h1>名札スキャン</h1>
+  <p class="sub" id="scansub"></p>
+
+  <div class="scan">
+    <video id="video" playsinline muted></video>
+    <div class="guide"><div class="hole"></div><div class="cap">枠の中に名前を入れてください</div></div>
+  </div>
+  <div class="result" id="result"><div class="idle" id="idle">「カメラを起動する」を押してください</div></div>
+
+  <p style="margin-top:14px"><button id="startbtn">カメラを起動する</button></p>
+
+  <div style="margin-top:22px">
+    <h2>読めないときは、名前で探す</h2>
+    <input type="text" id="manual" placeholder="例：新川" autocomplete="off">
+    <div id="manualout"></div>
+  </div>
+
+  <div id="loghost"></div>
+
+  <div class="bar">
+    <button class="ghost small" id="reset">読み取り記録を消す</button>
+    <button class="ghost small" id="change">別の座席表にする</button>
+  </div>
+  <p class="privacy" id="privacy"></p>
+</section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
+<script>
+/* =========================================================
+   名札スキャン
+   座席表(Excel)を1回読み込んでこの端末に保存し、以後はカメラだけで使う。
+   氏名は端末の外へ出ない（サーバー送信なし）。
+   ========================================================= */
+const $ = (id) => document.getElementById(id);
+const STORE = 'nafuda.roster.v1';
+
+/* ---------- 文字の正規化 ---------- */
+function norm(s){
+  return String(s).normalize('NFKC')
+    .replace(/[ 　\s]/g,'')
+    .replace(/[|｜/／,、.。・:：;；\-–—_]/g,'')
+    .replace(/(さん|様|君|くん)$/,'').trim();
+}
+const NOT_NAME = /^(スクリーン|発表台|入口|出口|受付|司会進行役|発表者用テーブル|スタッフ用|欠席者?|空席|予備|合計|備考|以上|←|→|↑|↓)$/;
+const SENTENCE = /(です|ます|ください|お願い|しま[すし]|注意|の方|から|まで)/;
+function looksLikeName(v){
+  if (v === null || v === undefined || typeof v === 'number') return false;
+  const t = norm(v);
+  if (t.length < 2 || t.length > 14) return false;
+  if (NOT_NAME.test(t) || SENTENCE.test(t)) return false;
+  if (/^[0-9A-Za-z]+$/.test(t)) return false;
+  if (!/[぀-ヿ一-鿿]/.test(t)) return false;
+  return true;
+}
+/* 1セルに複数人（例「鈴木 瑠奈/旭谷 恵里/中里 綾花」）を分解 */
+function splitNames(v){
+  const raw = String(v).normalize('NFKC').replace(/ /g,'').trim();
+  const parts = raw.split(/[\/／]+/).map(s=>s.trim()).filter(Boolean);
+  const ok = parts.filter(looksLikeName);
+  return ok.length >= 2 ? ok : [raw];
+}
+
+/* ---------- Excel → 列ごとの名簿 ---------- */
+function buildRoster(ws){
+  const ref = ws['!ref']; if(!ref) return null;
+  const R = XLSX.utils.decode_range(ref);
+  const cell = (r,c) => { const x = ws[XLSX.utils.encode_cell({r,c})]; return x ? x.v : null; };
+
+  /* 方式A：1行1人の表（「氏名」列と「列」列がある） */
+  for (let r = R.s.r; r <= Math.min(R.s.r + 12, R.e.r); r++){
+    let nameCol = -1, colCol = -1;
+    for (let c = R.s.c; c <= R.e.c; c++){
+      const v = cell(r,c); if (v == null) continue;
+      const t = String(v).normalize('NFKC').replace(/\s/g,'');
+      if (nameCol < 0 && /^(氏名|名前|参加者|お名前|会員名)$/.test(t)) nameCol = c;
+      if (colCol  < 0 && /^(列|列番号|テーブル|机|島|グループ|班|席列)$/.test(t)) colCol = c;
+    }
+    if (nameCol >= 0 && colCol >= 0){
+      const groups = new Map();
+      for (let rr = r+1; rr <= R.e.r; rr++){
+        const nm = cell(rr,nameCol), gv = cell(rr,colCol);
+        if (!looksLikeName(nm) || gv == null) continue;
+        const key = String(gv).normalize('NFKC').trim();
+        if (!groups.has(key)) groups.set(key, []);
+        splitNames(nm).forEach(x => groups.get(key).push(x));
+      }
+      if (groups.size >= 2)
+        return { mode:'表形式', groups:[...groups.entries()].map(([label,names]) => ({label,names,on:true})) };
+    }
+  }
+
+  /* 方式B：セルの位置が席の位置（レイアウト形式） */
+  const byCol = new Map();
+  for (let c = R.s.c; c <= R.e.c; c++){
+    const names = [];
+    for (let r = R.s.r; r <= R.e.r; r++){
+      const v = cell(r,c);
+      if (looksLikeName(v)) splitNames(v).forEach(x => names.push(x));
+    }
+    if (names.length >= 3) byCol.set(c, names);
+  }
+  if (!byCol.size) return null;
+  const cols = [...byCol.keys()].sort((a,b)=>a-b);
+  const blocks = [[cols[0]]];
+  for (let i=1;i<cols.length;i++){
+    if (cols[i] === cols[i-1]+1) blocks[blocks.length-1].push(cols[i]);
+    else blocks.push([cols[i]]);
+  }
+  return { mode:'レイアウト形式', groups: blocks.map((b,i) => ({
+    label: String(i+1),
+    cols: b.map(c => XLSX.utils.encode_col(c)).join('・'),
+    names: b.flatMap(c => byCol.get(c)), on:true })) };
+}
+
+/* ---------- あいまい照合 ---------- */
+function bigrams(s){ const o=[]; for(let i=0;i<s.length-1;i++) o.push(s.slice(i,i+2)); return o; }
+function dice(a,b){
+  if(!a.length||!b.length) return 0;
+  const m=new Map(); a.forEach(x=>m.set(x,(m.get(x)||0)+1));
+  let hit=0; b.forEach(x=>{const n=m.get(x)||0; if(n>0){hit++; m.set(x,n-1);} });
+  return 2*hit/(a.length+b.length);
+}
+function score(q,t){
+  let s = 0.45*dice([...q],[...t]) + 0.55*dice(bigrams(q),bigrams(t));
+  if (q[0] && q[0]===t[0]) s += 0.06;
+  return Math.min(s,1);
+}
+function match(raw){
+  const q = norm(raw);
+  if (q.length < 2) return null;
+  let best=null, second=0;
+  for (const p of ROSTER){
+    const s = score(q,p.k);
+    if (!best || s > best.s){ second = best ? best.s : second; best = {s,p}; }
+    else if (s > second) second = s;
+  }
+  if (!best || best.s < 0.55 || best.s - second < 0.12) return null;
+  return { name:best.p.n, group:best.p.g, s:best.s };
+}
+
+/* =========================================================
+   セットアップ
+   ========================================================= */
+let WB=null, CURRENT=null;
+
+$('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if(!f) return;
+  WB = XLSX.read(await f.arrayBuffer(), {type:'array'});
+  const sel = $('sheet'); sel.innerHTML='';
+  WB.SheetNames.forEach(n => { const o=document.createElement('option'); o.value=o.textContent=n; sel.appendChild(o); });
+  let bestName = WB.SheetNames[0], bestCount = -1;
+  for (const n of WB.SheetNames){
+    const r = buildRoster(WB.Sheets[n]);
+    const c = r ? r.groups.reduce((a,g)=>a+g.names.length,0) : -1;
+    if (c > bestCount){ bestCount = c; bestName = n; }
+  }
+  sel.value = bestName;
+  $('step2').classList.remove('hidden');
+  showSheet();
+});
+$('sheet').addEventListener('change', showSheet);
+
+function showSheet(){
+  CURRENT = buildRoster(WB.Sheets[$('sheet').value]);
+  const host = $('detect');
+  if(!CURRENT){
+    host.innerHTML = '<p class="warn">このシートからは席を見つけられませんでした。別のシートを選んでください。</p>';
+    $('save').disabled = true; return;
+  }
+  host.innerHTML = `
+    <p class="hint" style="margin-top:14px">読み取り方式：<b>${CURRENT.mode}</b>。${CURRENT.groups.length}個のまとまりが見つかりました。</p>
+    <div class="tablebox"><table>
+      <tr><th>使う</th><th>列</th><th>人数</th><th>入っている人（先頭だけ）</th></tr>
+      ${CURRENT.groups.map((g,i)=>`<tr>
+        <td><input type="checkbox" data-i="${i}" checked></td>
+        <td><b>${g.label}</b>${g.cols?`<div class="names">${g.cols}</div>`:''}</td>
+        <td>${g.names.length}人</td>
+        <td class="names">${g.names.slice(0,4).join('、')}${g.names.length>4?' …':''}</td></tr>`).join('')}
+    </table></div>
+    <p class="warn">席ではないまとまり（欠席者の一覧など）が混ざっていたら、左のチェックを外してください。</p>`;
+  host.querySelectorAll('input[type=checkbox]').forEach(cb =>
+    cb.addEventListener('change', () => { CURRENT.groups[+cb.dataset.i].on = cb.checked; }));
+  $('save').disabled = false;
+}
+
+$('save').addEventListener('click', () => {
+  const used = CURRENT.groups.filter(g=>g.on);
+  const people = [];
+  used.forEach((g,i) => g.names.forEach(n => people.push([n, g.label || String(i+1)])));
+  const payload = { v:1, t:$('sheet').value, p:people, at:new Date().toISOString() };
+  try { localStorage.setItem(STORE, JSON.stringify(payload)); } catch(e){}
+  bootScan(payload);
+});
+
+/* =========================================================
+   スキャン
+   ========================================================= */
+let ROSTER=[], SEEN=new Map(), LAST=null, LASTCOUNT=0, BUSY=false, WORKER=null;
+
+function bootScan(payload){
+  $('setup').classList.add('hidden');
+  $('scan').classList.remove('hidden');
+  ROSTER = payload.p.map(([n,g]) => ({ n, g, k:norm(n) }));
+  const cols = new Set(ROSTER.map(p=>p.g));
+  $('scansub').textContent = `${payload.t}／${ROSTER.length}人・${cols.size}列`;
+  $('privacy').textContent =
+    `この座席表（${ROSTER.length}人分）は、この端末のブラウザの中だけに保存されています。サーバーへは一度も送られていません。使い終わったら「別の座席表にする」で消せます。`;
+}
+
+$('startbtn').addEventListener('click', startCamera);
+
+async function startCamera(){
+  $('startbtn').disabled = true;
+  $('idle').textContent = 'カメラを準備しています…';
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+    const v = $('video'); v.srcObject = stream; await v.play();
+  }catch(e){
+    $('idle').textContent = 'カメラを使えませんでした：' + e.message;
+    $('startbtn').disabled = false; return;
+  }
+  $('idle').textContent = '文字を読む準備をしています（初回だけ時間がかかります）…';
+  try{
+    WORKER = await Tesseract.createWorker('jpn', 1, {
+      workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+      corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+      langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/jpn@1.0.0/4.0.0_best_int'
+    });
+    await WORKER.setParameters({ tessedit_pageseg_mode:'7', preserve_interword_spaces:'0' });
+  }catch(e){
+    $('idle').textContent = '文字認識の準備に失敗しました：' + e.message; return;
+  }
+  $('idle').textContent = '枠の中に名札を入れてください';
+  $('startbtn').classList.add('hidden');
+  loop();
+}
+
+function grab(){
+  const v = $('video'); if(!v.videoWidth) return null;
+  const W=v.videoWidth, H=v.videoHeight;
+  const sx=W*0.07, sw=W*0.86, sy=H*0.33, sh=H*0.32;
+  const cw=760, ch=Math.round(cw*sh/sw);
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const g=cv.getContext('2d',{willReadFrequently:true});
+  g.drawImage(v, sx,sy,sw,sh, 0,0,cw,ch);
+  const d=g.getImageData(0,0,cw,ch), a=d.data;
+  for(let i=0;i<a.length;i+=4){
+    const y=0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
+    const t = y<110 ? 0 : (y>165 ? 255 : (y-110)*255/55);
+    a[i]=a[i+1]=a[i+2]=t;
+  }
+  g.putImageData(d,0,0);
+  return cv;
+}
+
+async function loop(){
+  if(!BUSY){
+    BUSY = true;
+    try{
+      const cv = grab();
+      if(cv){
+        const { data } = await WORKER.recognize(cv);
+        const line = (data.text||'').split('\n').map(s=>s.trim()).filter(Boolean)[0] || '';
+        const m = match(line);
+        if(!m){ LAST=null; LASTCOUNT=0; }
+        else {
+          if(LAST===m.name) LASTCOUNT++; else { LAST=m.name; LASTCOUNT=1; }
+          if(LASTCOUNT===2) show(m);       // 2コマ続けて同じ人なら確定
+        }
+      }
+    }catch(e){ /* 1コマ失敗しても続ける */ }
+    BUSY = false;
+  }
+  setTimeout(loop, 120);
+}
+
+function show(m){
+  SEEN.set(m.name, m.group);
+  const done = [...SEEN.values()].filter(g => g===m.group).length;
+  const total = ROSTER.filter(p => p.g===m.group).length;
+  $('result').innerHTML = `
+    <div class="col-label">この人は</div>
+    <div class="col-num">${m.group}<small>列</small></div>
+    <div class="who">${m.name}</div>
+    <div class="meta">${m.group}列：${done} / ${total} 枚目</div>`;
+  if(navigator.vibrate) navigator.vibrate(60);
+  renderLog();
+}
+
+function renderLog(){
+  if(!SEEN.size){ $('loghost').innerHTML=''; return; }
+  const rows=[...SEEN.entries()].reverse().slice(0,8)
+    .map(([n,g])=>`<li><span>${n}</span><span>${g}列</span></li>`).join('');
+  $('loghost').innerHTML = `<h2 style="margin-top:22px">読み取った名札（${SEEN.size}枚）</h2><ul class="log">${rows}</ul>`;
+}
+
+/* 手で名前を探す（読めないときの逃げ道） */
+$('manual').addEventListener('input', (e) => {
+  const q = norm(e.target.value);
+  if(q.length < 1){ $('manualout').innerHTML=''; return; }
+  const hits = ROSTER.map(p => ({p, s:score(q,p.k)})).sort((a,b)=>b.s-a.s).slice(0,5)
+    .filter(x => x.s > 0.2);
+  $('manualout').innerHTML = hits.length
+    ? `<ul class="log">${hits.map(x=>`<li><span>${x.p.n}</span><span>${x.p.g}列</span></li>`).join('')}</ul>`
+    : '<p class="hint">見つかりませんでした。</p>';
+});
+
+$('reset').addEventListener('click', () => { SEEN.clear(); renderLog(); });
+$('change').addEventListener('click', () => {
+  try { localStorage.removeItem(STORE); } catch(e){}
+  location.reload();
+});
+
+/* ---------- 起動 ---------- */
+(function init(){
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch(e){}
+  if (saved && saved.p && saved.p.length) bootScan(saved);
+})();
+</script>
