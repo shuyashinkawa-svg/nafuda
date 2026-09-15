@@ -1,86 +1,221 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>名札スキャン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --ink:#111111; --paper:#ffffff; --mute:#6b6b6b; --faint:#e2e2e0;
-    --accent:#d94f04; --field:#f5f5f3;
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --ink:#f2f2f0; --paper:#141414; --mute:#a0a0a0; --faint:#303030;
-      --accent:#ff7a33; --field:#1e1e1e;
-    }
-  }
-  :root[data-theme="dark"]{
-    --ink:#f2f2f0; --paper:#141414; --mute:#a0a0a0; --faint:#303030;
-    --accent:#ff7a33; --field:#1e1e1e;
-  }
-  *{box-sizing:border-box}
-  body{background:var(--paper); color:var(--ink); margin:0;
-    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,Meiryo,system-ui,sans-serif;
-    font-size:15px; line-height:1.7;}
-  .wrap{max-width:680px; margin:0 auto; padding:0 16px; padding-block:22px 56px;}
+/* ===========================================================
+   名札スキャン — 画面仕様書（案A・ライトのみ・390×844px基準）に準拠
+   色はこの4つだけ：
+     #FFFFFF 背景 / #101112 文字・境界 / #6A6B6E 副文字 / #007FB0 列番号
+   やらないこと：影・ぼかし・グラデーション・角丸・列番号以外への着色
+   =========================================================== */
+:root{
+  color-scheme: light;
+  --paper:#FFFFFF;
+  --ink:#101112;
+  --sub:#6A6B6E;
+  --accent:#007FB0;
+  --camoff:#EDEBE6;
+  --camofftext:#9A9891;
+  --dash:#D8D6D0;
+  --press:#2B2F36;
+  --rowpress:#F3F1EC;
+  --hair:#E0DED8;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "Hiragino Kaku Gothic ProN", "Yu Gothic", YuGothic, Meiryo, system-ui, sans-serif;
+  --num: "Inter", system-ui, sans-serif;
+}
+*{box-sizing:border-box; border-radius:0 !important;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--sans); font-size:16px; line-height:1.6;
+  -webkit-text-size-adjust:100%;
+}
+button{font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer;}
+[hidden]{display:none !important;}
 
-  h1{font-size:18px; letter-spacing:.06em; margin:0; font-weight:700;}
-  .sub{color:var(--mute); font-size:13px; margin:4px 0 22px;}
-  h2{font-size:15px; margin:0 0 10px; font-weight:700; letter-spacing:.03em;}
-  .hint{font-size:13px; color:var(--mute); margin:8px 0 0;}
-  .step{border:1px solid var(--ink); padding:16px; margin-bottom:16px;}
-  .stepno{font-size:11px; letter-spacing:.16em; color:var(--mute); display:block; margin-bottom:6px;}
+/* ---------- 作業画面：スクロールさせない ---------- */
+body.work{overflow:hidden;}
+#work{
+  height:100dvh; display:flex; flex-direction:column;
+  padding-top:env(safe-area-inset-top, 0px);
+}
 
-  button{font:inherit; font-weight:700; color:var(--paper); background:var(--ink);
-    border:1px solid var(--ink); padding:12px 20px; cursor:pointer; border-radius:0;}
-  button.ghost{background:transparent; color:var(--ink);}
-  button.small{font-size:13px; padding:7px 12px; font-weight:400;}
-  button:disabled{opacity:.35; cursor:default;}
-  input[type=file]{font:inherit; font-size:13px; width:100%; background:var(--field); padding:10px; border:1px solid var(--faint);}
-  input[type=text]{font:inherit; font-size:15px; width:100%; padding:10px; background:var(--field);
-    color:var(--ink); border:1px solid var(--ink); border-radius:0;}
-  select{font:inherit; font-size:14px; padding:9px; width:100%; background:var(--field);
-    color:var(--ink); border:1px solid var(--ink); border-radius:0;}
+/* ヘッダー 46px */
+#hd{
+  flex:0 0 46px; height:46px; display:flex; align-items:center;
+  justify-content:space-between; padding:0 0 0 20px;
+  border-bottom:1px solid var(--ink);
+}
+#hdleft{font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.02em;}
+#menubtn{
+  width:44px; height:44px; display:flex; align-items:center; justify-content:center;
+  font-size:16px; color:var(--ink); letter-spacing:.14em;
+}
 
-  .tablebox{overflow-x:auto; margin-top:12px;}
-  table{border-collapse:collapse; width:100%; font-size:13px;}
-  th,td{border:1px solid var(--faint); padding:7px 8px; text-align:left; vertical-align:top;}
-  th{background:var(--field); font-weight:700; white-space:nowrap;}
-  .names{color:var(--mute); font-size:12px;}
-  .warn{border-left:3px solid var(--accent); padding-left:12px; font-size:13px; margin:14px 0 0;}
+/* カメラの場所：480px（④では340px）。844pxより低い端末ではここが先に縮む */
+#cam{
+  /* 映像480px ＋ 下境界2px ＝ 482px。結果ブロックは残り316pxになる */
+  position:relative; flex:1 1 482px; max-height:482px; min-height:0;
+  background:var(--camoff); overflow:hidden; border-bottom:2px solid var(--ink);
+}
+#work[data-state="pick"] #cam{flex-basis:342px; max-height:342px;}
+#video{width:100%; height:100%; object-fit:cover; display:block; background:#000;}
+#work[data-state="pre"] #video{display:none;}
+#camoff{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:10px; letter-spacing:.24em; color:var(--camofftext);
+}
+#work:not([data-state="pre"]) #camoff{display:none;}
 
-  .scan{position:relative; background:#000; overflow:hidden; border:1px solid var(--ink);}
-  .scan video{display:block; width:100%; height:auto;}
-  .guide{position:absolute; inset:0; pointer-events:none;}
-  .guide .hole{position:absolute; left:7%; right:7%; top:33%; height:32%;
-    border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.5);}
-  .guide .cap{position:absolute; left:0; right:0; top:calc(33% + 32% + 10px);
-    text-align:center; color:#fff; font-size:12px; letter-spacing:.08em;}
+/* 読取枠：左右22px・上165px・高さ150px・白2px。④では上95px */
+#frame{position:absolute; left:22px; right:22px; top:165px; height:150px; border:2px solid #fff;}
+#work[data-state="pick"] #frame{top:95px;}
+#work[data-state="pre"] #frame{display:none;}
+/* 枠外は黒55%の単色ベタ4枚（グラデーション不可） */
+.mask{position:absolute; background:rgba(0,0,0,.55);}
+#work[data-state="pre"] .mask{display:none;}
+/* 走査線：唯一のアニメーション。確定したら止める */
+#scanline{
+  position:absolute; left:0; right:0; top:0; height:2px; background:#fff; opacity:.8;
+  animation:sweep 1.1s linear infinite alternate;
+}
+@keyframes sweep{ from{ top:0; } to{ top:calc(100% - 2px); } }
+#work:not([data-state="scan"]) #scanline{display:none;}
+#guide{
+  position:absolute; left:0; right:0; top:331px; text-align:center;
+  font-size:12px; color:#fff; letter-spacing:.08em;
+}
+#work:not([data-state="scan"]) #guide{display:none;}
 
-  .result{border:1px solid var(--ink); border-top:none; padding:18px 16px; text-align:center; min-height:148px;}
-  .col-label{font-size:11px; letter-spacing:.2em; color:var(--mute);}
-  .col-num{font-size:76px; line-height:1.05; font-weight:700; color:var(--accent);}
-  .col-num small{font-size:23px; margin-left:2px;}
-  .who{font-size:19px; font-weight:700;}
-  .meta{font-size:12px; color:var(--mute); margin-top:4px;}
-  .idle{color:var(--mute); font-size:14px; padding-top:32px;}
+/* 結果ブロック：残り全部。左右パディング18px、縦横中央 */
+#res{flex:1 1 auto; min-height:0; position:relative; padding:0 18px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;}
+#work[data-state="pick"] #res{padding:0; justify-content:flex-start;}
 
-  ul.log{list-style:none; margin:12px 0 0; padding:0; font-size:13px;}
-  ul.log li{display:flex; justify-content:space-between; gap:10px; border-bottom:1px solid var(--faint); padding:6px 2px;}
-  ul.log li span:last-child{color:var(--mute); white-space:nowrap;}
+/* ① 起動前 */
+#pre{width:100%; height:100%; display:flex; flex-direction:column;
+     align-items:stretch; text-align:left; padding:0 2px;}
+#pre .ready{font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.14em; margin-top:22px;}
+#pre .lead{font-size:16px; line-height:1.8; margin-top:14px;}
+#pre .spacer{flex:1 1 auto;}
+#startbtn{
+  height:76px; width:100%; background:var(--ink); color:#fff;
+  font-size:18px; font-weight:700; margin-bottom:20px; display:flex;
+  align-items:center; justify-content:center;
+}
+#startbtn:active{background:var(--press);}
+#startbtn[disabled]{background:var(--press); cursor:default;}
+#prenote{font-size:16px; text-align:center; margin-bottom:20px; min-height:76px;
+  display:flex; align-items:center; justify-content:center;}
 
-  .bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:18px;}
-  .cands{display:flex; flex-direction:column; gap:8px; margin-top:12px;}
-  button.cand{display:flex; justify-content:space-between; align-items:baseline; gap:12px;
-    width:100%; background:transparent; color:var(--ink); border:1px solid var(--ink);
-    padding:14px 16px; text-align:left;}
-  .cand .cname{font-size:19px; font-weight:700;}
-  .cand .cgrp{font-size:17px; font-weight:700; color:var(--accent); white-space:nowrap;}
-  .raw{font-size:12px; color:var(--mute); margin:8px 0 0; min-height:1.4em;
-       font-family:ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all;}
-  .privacy{font-size:12px; color:var(--mute); border-top:1px solid var(--faint); margin-top:26px; padding-top:12px;}
-  .hidden{display:none}
+/* ②③ 列番号のかたまり */
+.colnum{
+  font-family:var(--num); font-weight:700; font-size:140px; line-height:.9;
+  letter-spacing:-.05em; font-variant-numeric:tabular-nums;
+  display:flex; align-items:baseline; justify-content:center;
+}
+.colnum .unit{font-size:36px; font-weight:700; margin-left:4px; font-family:var(--sans); letter-spacing:0;}
+#live .colnum{color:var(--dash);}
+#hit .colnum{color:var(--accent);}
+#live .total{font-family:var(--mono); font-size:13px; color:var(--sub); margin-top:34px;}
+#hit .who{font-size:36px; font-weight:700; line-height:1.25; letter-spacing:.01em; margin-top:18px;}
+#hit .prog{font-family:var(--mono); font-size:15px; color:var(--sub); margin-top:18px;}
+#hit .prog .done{font-size:11px; margin-left:8px;}
+
+/* ④ 候補 */
+#pick{width:100%; height:100%; display:flex; flex-direction:column;}
+#pick .lead{font-family:var(--mono); font-size:11px; color:var(--sub);
+  padding:12px 20px; border-bottom:1px solid var(--ink); text-align:left;}
+#pick .rows{flex:1 1 auto; display:flex; flex-direction:column; min-height:0;}
+.cand{
+  flex:1 1 0; min-height:88px; display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px; border-bottom:1px solid var(--ink); width:100%; text-align:left;
+}
+.cand:active{background:var(--rowpress);}
+.cand .nm{font-size:28px; font-weight:700;}
+.cand .cl{font-family:var(--num); font-weight:700; font-size:50px; color:var(--accent);
+  display:flex; align-items:baseline; font-variant-numeric:tabular-nums;}
+.cand .cl span{font-size:18px; font-family:var(--sans); margin-left:2px; font-weight:700;}
+#pick .foot{flex:0 0 56px; height:56px; display:flex; align-items:center; justify-content:center;
+  font-size:13px; color:var(--sub);}
+
+/* ---------- ⑤ 補助画面（全画面） ---------- */
+#sheet{
+  position:fixed; inset:0; background:var(--paper); z-index:10;
+  display:flex; flex-direction:column; padding-top:env(safe-area-inset-top, 0px);
+}
+#sheet header{
+  flex:0 0 46px; height:46px; display:flex; align-items:center; justify-content:space-between;
+  padding:0 16px 0 20px; border-bottom:2px solid var(--ink);
+}
+#sheet header .ttl{font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.06em;}
+#sheet header button{font-size:13px; padding:10px 4px;}
+#sheetbody{flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;}
+
+.menurow{
+  width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:22px 20px; border-bottom:1px solid var(--ink); text-align:left;
+}
+.menurow:active{background:var(--rowpress);}
+.menurow .t{display:block; font-size:20px; font-weight:700; line-height:1.3;}
+.menurow .s{display:block; font-size:13px; color:var(--sub); margin-top:2px; line-height:1.4;}
+.menurow .arrow{font-size:20px;}
+.note{font-size:13px; color:var(--sub); padding:20px; line-height:1.7;}
+.blockbtn{width:calc(100% - 40px); margin:0 20px 24px; height:56px; border:1px solid var(--ink);
+  display:flex; align-items:center; justify-content:center; font-size:15px;}
+.blockbtn:active{background:var(--rowpress);}
+
+#q{width:calc(100% - 40px); margin:20px; height:56px; padding:0 16px; font-size:17px;
+   border:1px solid var(--ink); background:var(--paper); color:var(--ink); font-family:var(--sans);}
+.qhint{font-size:13px; color:var(--sub); padding:0 20px 14px;}
+.hitrow{width:100%; display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; border-top:1px solid var(--ink); min-height:92px; text-align:left;}
+.hitrow:active{background:var(--rowpress);}
+.hitrow .nm{font-size:22px; font-weight:700;}
+.hitrow .cl{font-family:var(--num); font-weight:700; font-size:38px; color:var(--accent);
+  display:flex; align-items:baseline;}
+.hitrow .cl span{font-size:15px; font-family:var(--sans); margin-left:2px;}
+
+.tabs{display:flex; border-bottom:1px solid var(--ink);}
+.tabs button{flex:1 1 0; height:48px; font-size:15px; font-weight:700; color:var(--sub);}
+.tabs button[aria-selected="true"]{background:var(--ink); color:var(--paper);}
+.grouphd{display:flex; justify-content:space-between; padding:12px 20px;
+  border-bottom:1px solid var(--ink); font-size:15px; font-weight:700;}
+.grouphd .n{font-family:var(--mono); font-weight:400; color:var(--sub);}
+.namerow{display:flex; justify-content:space-between; align-items:center;
+  padding:0 20px; min-height:52px; border-bottom:1px solid var(--hair); font-size:16px;}
+.namerow .tm{font-family:var(--mono); font-size:12px; color:var(--sub);}
+
+/* ---------- 座席表の読み込み（STEP 1・2）。ここだけスクロールする ---------- */
+#setup{padding:24px 20px 56px; max-width:620px; margin:0 auto;}
+#setup h1{font-size:19px; margin:0 0 4px;}
+#setup .sub{font-size:13px; color:var(--sub); margin:0 0 24px;}
+.step{border:1px solid var(--ink); padding:16px; margin-bottom:16px;}
+.stepno{display:block; font-family:var(--mono); font-size:11px; color:var(--sub); letter-spacing:.14em; margin-bottom:6px;}
+.step h2{font-size:15px; margin:0 0 10px;}
+#file{width:100%; font-size:13px; padding:10px; border:1px solid var(--hair); background:var(--rowpress);}
+#sheetsel{width:100%; font-size:15px; padding:10px; border:1px solid var(--ink); background:var(--paper); color:var(--ink); font-family:var(--sans);}
+.hint{font-size:13px; color:var(--sub); margin:8px 0 0;}
+.warn{border-left:3px solid var(--ink); padding-left:12px; font-size:13px; margin-top:14px;}
+.tablebox{overflow-x:auto; margin-top:12px;}
+table{border-collapse:collapse; width:100%; font-size:13px;}
+th,td{border:1px solid var(--hair); padding:7px 8px; text-align:left; vertical-align:top;}
+th{background:var(--rowpress); white-space:nowrap;}
+.names{color:var(--sub); font-size:12px;}
+#save{height:56px; width:100%; background:var(--ink); color:#fff; font-size:16px; font-weight:700; margin-top:16px;}
+#save[disabled]{background:var(--press);}
 </style>
+</head>
+<body>
 
-<div class="wrap">
-
-<!-- ========== セットアップ ========== -->
+<!-- ========== 座席表の読み込み（STEP 1・2） ========== -->
 <section id="setup">
   <h1>名札スキャン</h1>
   <p class="sub">はじめに、座席表を1回だけ読み込みます。次からはこの操作は要りません。</p>
@@ -90,63 +225,79 @@
     <h2>座席表のExcelを選ぶ</h2>
     <input type="file" id="file" accept=".xlsx,.xlsm,.xls,.csv">
     <p class="hint">ファイルはこの端末の中だけで開きます。どこにも送信されません。</p>
+    <p class="hint" id="replacenote" hidden>座席表を入れ替えると、いままでの読み取り記録は消えます。</p>
   </div>
 
-  <div class="step hidden" id="step2">
+  <div class="step" id="step2" hidden>
     <span class="stepno">STEP 2</span>
     <h2>シートと列を確かめる</h2>
-    <select id="sheet"></select>
+    <select id="sheetsel"></select>
     <div id="detect"></div>
-    <p style="margin-top:16px"><button id="save" disabled>この内容で使う</button></p>
+    <button id="save" disabled>この内容で使う</button>
   </div>
 </section>
 
-<!-- ========== スキャン ========== -->
-<section id="scan" class="hidden">
-  <h1>名札スキャン</h1>
-  <p class="sub" id="scansub"></p>
+<!-- ========== 作業画面（①〜④） ========== -->
+<section id="work" data-state="pre" hidden>
+  <header id="hd">
+    <span id="hdleft"></span>
+    <button id="menubtn" aria-label="メニュー">···</button>
+  </header>
 
-  <div class="scan">
+  <div id="cam">
     <video id="video" playsinline muted></video>
-    <div class="guide"><div class="hole"></div><div class="cap">枠の中に名前を入れてください</div></div>
-  </div>
-  <div class="result" id="result"><div class="idle" id="idle">「カメラを起動する」を押してください</div></div>
-  <p class="raw" id="raw"></p>
-
-  <div class="bar" style="margin-top:12px">
-    <button id="startbtn">カメラを起動する</button>
-    <button class="ghost small hidden" id="next">次の名札へ</button>
+    <div id="camoff">CAMERA OFF</div>
+    <div class="mask" id="m1"></div><div class="mask" id="m2"></div>
+    <div class="mask" id="m3"></div><div class="mask" id="m4"></div>
+    <div id="frame"><div id="scanline"></div></div>
+    <div id="guide">枠の中に名前を入れる</div>
   </div>
 
-  <div style="margin-top:22px">
-    <h2>読めないときは、名前で探す</h2>
-    <input type="text" id="manual" placeholder="例：新川" autocomplete="off">
-    <div id="manualout"></div>
+  <div id="res">
+    <!-- ① -->
+    <div id="pre">
+      <div class="ready">READY</div>
+      <div class="lead">座席表は読み込み済みです。<br>カメラを起動すると、ここに列番号が出ます。</div>
+      <div class="spacer"></div>
+      <button id="startbtn">カメラを起動する</button>
+      <div id="prenote" hidden></div>
+    </div>
+    <!-- ② -->
+    <div id="live" hidden>
+      <div class="colnum">—</div>
+      <div class="total" id="totaltext"></div>
+    </div>
+    <!-- ③ -->
+    <div id="hit" hidden>
+      <div class="colnum"><span id="hitcol"></span><span class="unit">列</span></div>
+      <div class="who" id="hitname"></div>
+      <div class="prog" id="hitprog"></div>
+    </div>
+    <!-- ④ -->
+    <div id="pick" hidden>
+      <div class="lead" id="picklead"></div>
+      <div class="rows" id="pickrows"></div>
+      <div class="foot">どれでもなければ、そのまま次の名札へ</div>
+    </div>
   </div>
-
-  <div id="loghost"></div>
-
-  <div class="bar">
-    <button class="ghost small" id="reset">読み取り記録を消す</button>
-    <button class="ghost small" id="change">別の座席表にする</button>
-  </div>
-  <p class="privacy" id="privacy"></p>
 </section>
 
-</div>
+<!-- ========== ⑤ 補助画面 ========== -->
+<section id="sheet" hidden>
+  <header>
+    <span class="ttl" id="sheettitle"></span>
+    <button id="sheetclose">閉じる</button>
+  </header>
+  <div id="sheetbody"></div>
+</section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <script>
-/* =========================================================
-   名札スキャン
-   座席表(Excel)を1回読み込んでこの端末に保存し、以後はカメラだけで使う。
-   氏名は端末の外へ出ない（サーバー送信なし）。
-   ========================================================= */
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 const STORE = 'nafuda.roster.v1';
 
-/* ---------- 文字の正規化 ---------- */
+/* ===================== 文字の正規化 ===================== */
 function norm(s){
   return String(s).normalize('NFKC')
     .replace(/[ 　\s]/g,'')
@@ -164,7 +315,6 @@ function looksLikeName(v){
   if (!/[぀-ヿ一-鿿]/.test(t)) return false;
   return true;
 }
-/* 1セルに複数人（例「鈴木 瑠奈/旭谷 恵里/中里 綾花」）を分解 */
 function splitNames(v){
   const raw = String(v).normalize('NFKC').replace(/ /g,'').trim();
   const parts = raw.split(/[\/／]+/).map(s=>s.trim()).filter(Boolean);
@@ -172,13 +322,13 @@ function splitNames(v){
   return ok.length >= 2 ? ok : [raw];
 }
 
-/* ---------- Excel → 列ごとの名簿 ---------- */
+/* ===================== Excel → 列ごとの名簿 ===================== */
 function buildRoster(ws){
   const ref = ws['!ref']; if(!ref) return null;
   const R = XLSX.utils.decode_range(ref);
   const cell = (r,c) => { const x = ws[XLSX.utils.encode_cell({r,c})]; return x ? x.v : null; };
 
-  /* 方式A：1行1人の表（「氏名」列と「列」列がある） */
+  /* 方式A：1行1人の表 */
   for (let r = R.s.r; r <= Math.min(R.s.r + 12, R.e.r); r++){
     let nameCol = -1, colCol = -1;
     for (let c = R.s.c; c <= R.e.c; c++){
@@ -201,7 +351,7 @@ function buildRoster(ws){
     }
   }
 
-  /* 方式B：セルの位置が席の位置（レイアウト形式） */
+  /* 方式B：セルの位置が席の位置 */
   const byCol = new Map();
   for (let c = R.s.c; c <= R.e.c; c++){
     const names = [];
@@ -219,96 +369,77 @@ function buildRoster(ws){
     else blocks.push([cols[i]]);
   }
   return { mode:'レイアウト形式', groups: blocks.map((b,i) => ({
-    label: String(i+1),
-    cols: b.map(c => XLSX.utils.encode_col(c)).join('・'),
-    names: b.flatMap(c => byCol.get(c)), on:true })) };
+    label:String(i+1),
+    cols:b.map(c=>XLSX.utils.encode_col(c)).join('・'),
+    names:b.flatMap(c=>byCol.get(c)), on:true })) };
 }
 
-/* ---------- あいまい照合 ----------
-   考え方：完全一致は求めない。名簿の中で「一番似ている人」を点数で選ぶ。
-   珍しい文字（名簿で1人しか使っていない字）ほど、合ったときの加点を大きくする。
-   ただし珍しい文字が1つ合っただけで確定はしない。あくまで点数への重み。      */
-let IDF = new Map();          // 文字 → その字の珍しさ
+/* ===================== あいまい照合 ===================== */
+let ROSTER = [], IDF = new Map();
 function buildIdf(){
   IDF = new Map();
-  const N = ROSTER.length || 1;
-  const df = new Map();
-  for (const p of ROSTER){
-    for (const ch of new Set(p.k)) df.set(ch, (df.get(ch)||0) + 1);
-  }
-  for (const [ch,n] of df) IDF.set(ch, Math.log(N / n) + 0.5);
+  const N = ROSTER.length || 1, df = new Map();
+  for (const p of ROSTER) for (const ch of new Set(p.k)) df.set(ch,(df.get(ch)||0)+1);
+  for (const [ch,n] of df) IDF.set(ch, Math.log(N/n) + 0.5);
 }
-const MAXIDF = () => Math.log((ROSTER.length||1)) + 0.5;
-function idf(ch){ return IDF.has(ch) ? IDF.get(ch) : MAXIDF(); }
-
-function bigrams(s){ const o=[]; for(let i=0;i<s.length-1;i++) o.push(s.slice(i,i+2)); return o; }
+const MAXIDF = () => Math.log(ROSTER.length||1) + 0.5;
+const idf = ch => IDF.has(ch) ? IDF.get(ch) : MAXIDF();
+const bigrams = s => { const o=[]; for(let i=0;i<s.length-1;i++) o.push(s.slice(i,i+2)); return o; };
 function dice(a,b){
   if(!a.length||!b.length) return 0;
   const m=new Map(); a.forEach(x=>m.set(x,(m.get(x)||0)+1));
-  let hit=0; b.forEach(x=>{const n=m.get(x)||0; if(n>0){hit++; m.set(x,n-1);} });
-  return 2*hit/(a.length+b.length);
+  let h=0; b.forEach(x=>{const n=m.get(x)||0; if(n>0){h++; m.set(x,n-1);} });
+  return 2*h/(a.length+b.length);
 }
-/* 珍しさで重みを付けた文字の一致率 */
 function diceWeighted(q,t){
   const m=new Map(); for(const ch of q) m.set(ch,(m.get(ch)||0)+1);
   let hit=0;
-  for(const ch of t){ const n=m.get(ch)||0; if(n>0){ hit += idf(ch); m.set(ch,n-1); } }
+  for(const ch of t){ const n=m.get(ch)||0; if(n>0){ hit+=idf(ch); m.set(ch,n-1); } }
   let sq=0, st=0;
-  for(const ch of q) sq += idf(ch);
-  for(const ch of t) st += idf(ch);
+  for(const ch of q) sq+=idf(ch);
+  for(const ch of t) st+=idf(ch);
   return (sq+st) ? 2*hit/(sq+st) : 0;
 }
 function score(q,t){
-  /* 短い名前は2文字の並びが取れないので、文字そのものの一致を重く見る */
-  const short = Math.min(q.length, t.length) <= 3;
+  const short = Math.min(q.length,t.length) <= 3;
   const wc = short ? 0.78 : 0.55;
   let s = wc*diceWeighted(q,t) + (1-wc)*dice(bigrams(q),bigrams(t));
   if (q[0] && q[0]===t[0]) s += 0.06;
   return Math.min(s,1);
 }
-
-const AUTO_MIN = 0.60;   // これ以上かつ2位と差があれば自動で確定
-const AUTO_GAP = 0.12;
-const CAND_MIN = 0.38;   // これ以上なら候補として見せる
-
-/* 上位の候補を返す。1位が十分強ければ decided:true */
+const AUTO_MIN = 0.60, AUTO_GAP = 0.12, CAND_MIN = 0.38;
 function rank(raw){
   const q = norm(raw);
   if (q.length < 2) return null;
-  const all = ROSTER.map(p => ({ p, s: score(q, p.k) })).sort((a,b) => b.s - a.s);
+  const all = ROSTER.map(p => ({p, s:score(q,p.k)})).sort((a,b)=>b.s-a.s);
   const top = all.slice(0,3).filter(x => x.s >= CAND_MIN);
   if (!top.length) return null;
-  /* 候補が1人しか残らないときは、点数が基準に届かなくても確定してよい。
-     他に近い人がいないということなので、聞いても選択肢が1つしかない。 */
-  const decided = top.length === 1
-    || (top[0].s >= AUTO_MIN && top[0].s - top[1].s >= AUTO_GAP);
-  return { decided, list: top.map(x => ({ name:x.p.n, group:x.p.g, s:x.s })) };
+  const decided = top.length === 1 || (top[0].s >= AUTO_MIN && top[0].s - top[1].s >= AUTO_GAP);
+  return { decided, list: top.map(x => ({ name:x.p.n, group:x.p.g })) };
 }
 
-/* =========================================================
-   セットアップ
-   ========================================================= */
-let WB=null, CURRENT=null;
+/* ===================== 座席表の読み込み ===================== */
+let WB = null, CURRENT = null;
 
-$('file').addEventListener('change', async (e) => {
+$('file').addEventListener('change', async e => {
   const f = e.target.files[0]; if(!f) return;
   WB = XLSX.read(await f.arrayBuffer(), {type:'array'});
-  const sel = $('sheet'); sel.innerHTML='';
+  const sel = $('sheetsel'); sel.innerHTML = '';
   WB.SheetNames.forEach(n => { const o=document.createElement('option'); o.value=o.textContent=n; sel.appendChild(o); });
-  let bestName = WB.SheetNames[0], bestCount = -1;
+  let best = WB.SheetNames[0], bc = -1;
   for (const n of WB.SheetNames){
     const r = buildRoster(WB.Sheets[n]);
     const c = r ? r.groups.reduce((a,g)=>a+g.names.length,0) : -1;
-    if (c > bestCount){ bestCount = c; bestName = n; }
+    if (c > bc){ bc = c; best = n; }
   }
-  sel.value = bestName;
-  $('step2').classList.remove('hidden');
+  sel.value = best;
+  $('step2').hidden = false;
   showSheet();
 });
-$('sheet').addEventListener('change', showSheet);
+$('sheetsel').addEventListener('change', showSheet);
 
 function showSheet(){
-  CURRENT = buildRoster(WB.Sheets[$('sheet').value]);
+  CURRENT = buildRoster(WB.Sheets[$('sheetsel').value]);
   const host = $('detect');
   if(!CURRENT){
     host.innerHTML = '<p class="warn">このシートからは席を見つけられませんでした。別のシートを選んでください。</p>';
@@ -331,47 +462,76 @@ function showSheet(){
 }
 
 $('save').addEventListener('click', () => {
-  const used = CURRENT.groups.filter(g=>g.on);
-  const people = [];
+  const used = CURRENT.groups.filter(g=>g.on), people = [];
   used.forEach((g,i) => g.names.forEach(n => people.push([n, g.label || String(i+1)])));
-  const payload = { v:1, t:$('sheet').value, p:people, at:new Date().toISOString() };
+  const payload = { v:1, t:$('sheetsel').value, p:people };
   try { localStorage.setItem(STORE, JSON.stringify(payload)); } catch(e){}
-  bootScan(payload);
+  SEEN.clear();
+  boot(payload);
 });
 
-/* =========================================================
-   スキャン
-   ========================================================= */
-let ROSTER=[], SEEN=new Map(), BUSY=false, WORKER=null;
-let RECENT=[];      // 直近5コマの照合結果（名前 または null）
-let SHOWN=null;     // いま画面に出している人
-let PICKING=false;  // 候補を出して、人の選択を待っている最中か
+/* ===================== 作業画面 ===================== */
+let SEEN = new Map();          // 名前 → { g:列, t:'14:32' }
+let RECENT = [], SHOWN = null, PICKTOP = null;
+let BUSY = false, WORKER = null, TITLE = '';
 
-function bootScan(payload){
-  $('setup').classList.add('hidden');
-  $('scan').classList.remove('hidden');
+function setState(s){ $('work').dataset.state = s;
+  $('pre').hidden = s !== 'pre';
+  $('live').hidden = s !== 'scan';
+  $('hit').hidden = s !== 'hit';
+  $('pick').hidden = s !== 'pick';
+}
+function colsOf(){ return [...new Set(ROSTER.map(p=>p.g))]; }
+function headerText(){
+  return $('work').dataset.state === 'pre'
+    ? `${TITLE} · ${ROSTER.length}人 · ${colsOf().length}列`
+    : `読取 ${SEEN.size}`;
+}
+function refreshHeader(){ $('hdleft').textContent = headerText(); }
+
+function boot(payload){
+  TITLE = payload.t;
   ROSTER = payload.p.map(([n,g]) => ({ n, g, k:norm(n) }));
   buildIdf();
-  const cols = new Set(ROSTER.map(p=>p.g));
-  $('scansub').textContent = `${payload.t}／${ROSTER.length}人・${cols.size}列`;
-  $('privacy').textContent =
-    `この座席表（${ROSTER.length}人分）は、この端末のブラウザの中だけに保存されています。サーバーへは一度も送られていません。使い終わったら「別の座席表にする」で消せます。`;
+  $('setup').hidden = true;
+  $('work').hidden = false;
+  document.body.classList.add('work');
+  setState('pre');
+  refreshHeader();
+  layoutMasks();
 }
 
-$('startbtn').addEventListener('click', startCamera);
+/* 枠外の黒ベタ4枚を、枠の位置に合わせて置く */
+function layoutMasks(){
+  const pick = $('work').dataset.state === 'pick';
+  const top = pick ? 95 : 165, h = 150, side = 22;
+  $('m1').style.cssText = `left:0;right:0;top:0;height:${top}px;`;
+  $('m2').style.cssText = `left:0;right:0;top:${top+h}px;bottom:0;`;
+  $('m3').style.cssText = `left:0;width:${side}px;top:${top}px;height:${h}px;`;
+  $('m4').style.cssText = `right:0;width:${side}px;top:${top}px;height:${h}px;`;
+  $('guide').style.top = (top + h + 16) + 'px';
+}
 
-async function startCamera(){
+/* --- カメラと文字認識の準備 --- */
+$('startbtn').addEventListener('click', start);
+function preNote(msg, keepDisabled){
+  $('startbtn').hidden = true; $('prenote').hidden = false; $('prenote').textContent = msg;
+  if (!keepDisabled){ $('startbtn').hidden = false; $('startbtn').disabled = false; $('prenote').hidden = true; }
+}
+async function start(){
   $('startbtn').disabled = true;
-  $('idle').textContent = 'カメラを準備しています…';
+  $('startbtn').hidden = true; $('prenote').hidden = false;
+  $('prenote').textContent = 'カメラを準備しています…';
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
       video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
-    const v = $('video'); v.srcObject = stream; await v.play();
+    $('video').srcObject = stream; await $('video').play();
   }catch(e){
-    $('idle').textContent = 'カメラを使えませんでした：' + e.message;
-    $('startbtn').disabled = false; return;
+    $('prenote').hidden = true; $('startbtn').hidden = false; $('startbtn').disabled = false;
+    $('prenote').hidden = false; $('prenote').textContent = 'カメラを使えませんでした：' + e.message;
+    return;
   }
-  $('idle').textContent = '文字を読む準備をしています（初回だけ時間がかかります）…';
+  $('prenote').textContent = '文字を読む準備をしています…';
   try{
     WORKER = await Tesseract.createWorker('jpn', 1, {
       workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
@@ -380,31 +540,43 @@ async function startCamera(){
     });
     await WORKER.setParameters({ tessedit_pageseg_mode:'7', preserve_interword_spaces:'0' });
   }catch(e){
-    $('idle').textContent = '文字認識の準備に失敗しました：' + e.message; return;
+    $('prenote').textContent = '文字認識の準備に失敗しました：' + e.message;
+    $('startbtn').hidden = false; $('startbtn').disabled = false;
+    return;
   }
-  $('idle').textContent = '枠の中に名札を入れてください';
-  $('startbtn').classList.add('hidden');
+  setState('scan'); layoutMasks(); refreshHeader(); updateTotal();
   loop();
 }
 
+function updateTotal(){ $('totaltext').textContent = `合計 ${SEEN.size} / ${ROSTER.length} 枚`; }
+
 function grab(){
   const v = $('video'); if(!v.videoWidth) return null;
-  const W=v.videoWidth, H=v.videoHeight;
-  const sx=W*0.07, sw=W*0.86, sy=H*0.33, sh=H*0.32;
-  const cw=760, ch=Math.round(cw*sh/sw);
-  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
-  const g=cv.getContext('2d',{willReadFrequently:true});
-  g.drawImage(v, sx,sy,sw,sh, 0,0,cw,ch);
-  const d=g.getImageData(0,0,cw,ch), a=d.data;
+  const cam = $('cam').getBoundingClientRect();
+  const fr  = $('frame').getBoundingClientRect();
+  /* 画面上の読取枠が、映像のどこに当たるかを求める（object-fit: cover） */
+  const scale = Math.max(cam.width / v.videoWidth, cam.height / v.videoHeight);
+  const dw = v.videoWidth * scale, dh = v.videoHeight * scale;
+  const ox = (cam.width - dw) / 2, oy = (cam.height - dh) / 2;
+  const sx = ((fr.left - cam.left) - ox) / scale;
+  const sy = ((fr.top  - cam.top ) - oy) / scale;
+  const sw = fr.width / scale, sh = fr.height / scale;
+  if (sw <= 0 || sh <= 0) return null;
+  const cw = 760, ch = Math.max(1, Math.round(cw*sh/sw));
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const g = cv.getContext('2d', {willReadFrequently:true});
+  g.drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+  const d = g.getImageData(0,0,cw,ch), a = d.data;
   for(let i=0;i<a.length;i+=4){
-    const y=0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
-    const t = y<110 ? 0 : (y>165 ? 255 : (y-110)*255/55);
+    const y = 0.299*a[i] + 0.587*a[i+1] + 0.114*a[i+2];
+    const t = y < 110 ? 0 : (y > 165 ? 255 : (y-110)*255/55);
     a[i]=a[i+1]=a[i+2]=t;
   }
   g.putImageData(d,0,0);
   return cv;
 }
 
+let RAWTEXT = '';   // 開発用。作業画面には出さない
 async function loop(){
   if(!BUSY){
     BUSY = true;
@@ -413,21 +585,13 @@ async function loop(){
       if(cv){
         const { data } = await WORKER.recognize(cv);
         const line = (data.text||'').split('\n').map(s=>s.trim()).filter(Boolean)[0] || '';
-        $('raw').textContent = 'いま読めている文字：' + (line || '—');
+        RAWTEXT = line;
         const r = rank(line);
-        const topName = r ? r.list[0].name : null;
-
-        /* 直近5コマのうち2回、同じ人が1位に来たら動く。
-           1コマ読み損ねても数え直しにならない。1コマだけでの確定はしない。 */
-        RECENT.push(topName);
-        if (RECENT.length > 5) RECENT.shift();
-
-        if (r && !PICKING && topName !== SHOWN){
-          const hits = RECENT.filter(x => x === topName).length;
-          if (hits >= 2){
-            if (r.decided){ SHOWN = topName; show(r.list[0]); }
-            else { showCandidates(r.list); }
-          }
+        const top = r ? r.list[0].name : null;
+        RECENT.push(top); if (RECENT.length > 5) RECENT.shift();
+        if (r && RECENT.filter(x => x === top).length >= 2){
+          if (r.decided){ if (top !== SHOWN) showHit(r.list[0]); }
+          else { if (top !== PICKTOP) showPick(r.list); }
         }
       }
     }catch(e){ /* 1コマ失敗しても続ける */ }
@@ -436,72 +600,138 @@ async function loop(){
   setTimeout(loop, 120);
 }
 
-function show(m){
-  SEEN.set(m.name, m.group);
-  const done = [...SEEN.values()].filter(g => g===m.group).length;
-  const total = ROSTER.filter(p => p.g===m.group).length;
-  $('result').innerHTML = `
-    <div class="col-label">この人は</div>
-    <div class="col-num">${m.group}<small>列</small></div>
-    <div class="who">${m.name}</div>
-    <div class="meta">${m.group}列：${done} / ${total} 枚目</div>`;
-  if(navigator.vibrate) navigator.vibrate(60);
-  $('next').classList.remove('hidden');
-  renderLog();
+function nowHM(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function showHit(m, silent){
+  const again = SEEN.has(m.name);
+  if (!again) SEEN.set(m.name, { g:m.group, t:nowHM() });
+  SHOWN = m.name; PICKTOP = null;
+  const done  = [...SEEN.values()].filter(x => x.g === m.group).length;
+  const total = ROSTER.filter(p => p.g === m.group).length;
+  $('hitcol').textContent  = m.group;
+  $('hitname').textContent = m.name;
+  $('hitprog').innerHTML   = `${m.group}列：${done} / ${total} 枚目` + (again ? '<span class="done">済</span>' : '');
+  setState('hit'); layoutMasks(); refreshHeader(); updateTotal();
+  if (!again && !silent && navigator.vibrate) navigator.vibrate(60);
+}
+function showPick(list){
+  PICKTOP = list[0].name; SHOWN = null;
+  $('picklead').textContent = list.length >= 2 ? `${list.length}人が近い — どれですか` : 'この人で合っていますか';
+  $('pickrows').innerHTML = list.map((c,i) =>
+    `<button class="cand" data-i="${i}"><span class="nm">${c.name}</span><span class="cl">${c.group}<span>列</span></span></button>`).join('');
+  $('pickrows').querySelectorAll('.cand').forEach(b =>
+    b.addEventListener('click', () => showHit(list[+b.dataset.i])));
+  setState('pick'); layoutMasks(); refreshHeader();
+  if (navigator.vibrate) navigator.vibrate([30,60,30]);
 }
 
-/* 決めきれないとき：候補を出して、人に選んでもらう */
-function showCandidates(list){
-  PICKING = true;
-  /* 候補が1人しか残らないときは「選ばせる」のではなく「確認する」画面にする。
-     点数が自動確定の基準に届かなかっただけで、選択肢が壊れているわけではない。 */
-  const ask = list.length >= 2 ? 'どれですか' : 'この人で合っていますか';
-  $('result').innerHTML = `
-    <div class="col-label">${ask}</div>
-    <div class="cands">${list.map((c,i)=>`
-      <button class="cand" data-i="${i}">
-        <span class="cname">${c.name}</span><span class="cgrp">${c.group}列</span>
-      </button>`).join('')}</div>`;
-  $('result').querySelectorAll('.cand').forEach(b =>
-    b.addEventListener('click', () => { PICKING=false; SHOWN=list[+b.dataset.i].name; show(list[+b.dataset.i]); }));
-  $('next').classList.remove('hidden');
-  if (navigator.vibrate) navigator.vibrate(30);
+/* ===================== ⑤ 補助画面 ===================== */
+function openSheet(title, html, after){
+  $('sheettitle').textContent = title;
+  $('sheetbody').innerHTML = html;
+  $('sheet').hidden = false;
+  if (after) after();
+}
+$('sheetclose').addEventListener('click', () => { $('sheet').hidden = true; });
+$('menubtn').addEventListener('click', openMenu);
+
+function openMenu(){
+  openSheet('メニュー', `
+    <button class="menurow" id="mSearch">
+      <span><span class="t">名前を打って探す</span><span class="s">読み取れない名札のとき</span></span>
+      <span class="arrow">→</span></button>
+    <button class="menurow" id="mList">
+      <span><span class="t">読み取った名札の一覧</span><span class="s">今 ${SEEN.size} 枚 · 列ごとの残りも確認</span></span>
+      <span class="arrow">→</span></button>
+    <button class="menurow" id="mSwap">
+      <span><span class="t">座席表を入れ替える</span><span class="s">いま：${TITLE} / ${ROSTER.length}人</span></span>
+      <span class="arrow">→</span></button>
+    <p class="note">この座席表は端末の中だけに保存されています。サーバーへは送られていません。</p>
+    <button class="blockbtn" id="mClear">読み取り記録を消す</button>
+    <button class="blockbtn" id="mRaw" style="border-color:var(--hair);color:var(--sub);font-size:13px;height:44px;">
+      開発用：いま読めている文字</button>
+  `, () => {
+    $('mSearch').onclick = openSearch;
+    $('mList').onclick   = openList;
+    $('mSwap').onclick   = swapRoster;
+    $('mClear').onclick  = () => { SEEN.clear(); refreshHeader(); updateTotal(); openMenu(); };
+    $('mRaw').onclick    = () => { $('mRaw').textContent = '読めている文字：' + (RAWTEXT || '—'); };
+  });
 }
 
-/* 同じ名札をもう一度読ませたいときの逃げ道 */
-$('next').addEventListener('click', () => {
-  SHOWN = null; RECENT = []; PICKING = false;
-  $('result').innerHTML = '<div class="idle">枠の中に名札を入れてください</div>';
-});
-
-function renderLog(){
-  if(!SEEN.size){ $('loghost').innerHTML=''; return; }
-  const rows=[...SEEN.entries()].reverse().slice(0,8)
-    .map(([n,g])=>`<li><span>${n}</span><span>${g}列</span></li>`).join('');
-  $('loghost').innerHTML = `<h2 style="margin-top:22px">読み取った名札（${SEEN.size}枚）</h2><ul class="log">${rows}</ul>`;
+function openSearch(){
+  openSheet('名前で探す', `
+    <input type="text" id="q" placeholder="例：しんかわ" autocomplete="off">
+    <p class="qhint">姓だけ・ひらがなでも当たります</p>
+    <div id="qout"></div>
+    <p class="note">選ぶと、その人を読み取り済みにしてカメラへ戻ります。</p>
+  `, () => {
+    $('q').focus();
+    $('q').addEventListener('input', e => {
+      const q = norm(e.target.value);
+      if (!q){ $('qout').innerHTML = ''; return; }
+      const hits = ROSTER.map(p => ({p, s:score(q,p.k)})).sort((a,b)=>b.s-a.s).slice(0,5).filter(x=>x.s>0.2);
+      $('qout').innerHTML = hits.map((x,i) =>
+        `<button class="hitrow" data-i="${i}"><span class="nm">${x.p.n}</span><span class="cl">${x.p.g}<span>列</span></span></button>`).join('')
+        || '<p class="qhint">見つかりませんでした。</p>';
+      $('qout').querySelectorAll('.hitrow').forEach(b => b.addEventListener('click', () => {
+        const p = hits[+b.dataset.i].p;
+        $('sheet').hidden = true;
+        showHit({ name:p.n, group:p.g }, true);
+      }));
+    });
+  });
 }
 
-/* 手で名前を探す（読めないときの逃げ道） */
-$('manual').addEventListener('input', (e) => {
-  const q = norm(e.target.value);
-  if(q.length < 1){ $('manualout').innerHTML=''; return; }
-  const hits = ROSTER.map(p => ({p, s:score(q,p.k)})).sort((a,b)=>b.s-a.s).slice(0,5)
-    .filter(x => x.s > 0.2);
-  $('manualout').innerHTML = hits.length
-    ? `<ul class="log">${hits.map(x=>`<li><span>${x.p.n}</span><span>${x.p.g}列</span></li>`).join('')}</ul>`
-    : '<p class="hint">見つかりませんでした。</p>';
-});
+function listHTML(mode){
+  if (!SEEN.size) return '<p class="note">まだ1枚も読み取っていません。</p>';
+  if (mode === 'order'){
+    return [...SEEN.entries()].reverse().map(([n,v]) =>
+      `<div class="namerow"><span>${n}</span><span class="tm">${v.g}列 · ${v.t}</span></div>`).join('');
+  }
+  const cols = colsOf().filter(g => [...SEEN.values()].some(v => v.g === g));
+  return cols.map(g => {
+    const done  = [...SEEN.values()].filter(v => v.g === g).length;
+    const total = ROSTER.filter(p => p.g === g).length;
+    const rows = [...SEEN.entries()].filter(([,v]) => v.g === g)
+      .map(([n,v]) => `<div class="namerow"><span>${n}</span><span class="tm">${v.t}</span></div>`).join('');
+    return `<div class="grouphd"><span>${g}列</span><span class="n">${done} / ${total}</span></div>${rows}`;
+  }).join('');
+}
+function openList(){
+  openSheet(`読み取った名札 ${SEEN.size}`, `
+    <div class="tabs">
+      <button id="tCol" aria-selected="true">列ごと</button>
+      <button id="tOrd" aria-selected="false">読んだ順</button>
+    </div>
+    <div id="listbody">${listHTML('col')}</div>
+    <p class="note">袋詰めの最後に「16 / 16」だけを見て、列ごとの枚数を確認します。</p>
+  `, () => {
+    const set = m => {
+      $('tCol').setAttribute('aria-selected', String(m==='col'));
+      $('tOrd').setAttribute('aria-selected', String(m==='order'));
+      $('listbody').innerHTML = listHTML(m);
+    };
+    $('tCol').onclick = () => set('col');
+    $('tOrd').onclick = () => set('order');
+  });
+}
 
-$('reset').addEventListener('click', () => { SEEN.clear(); renderLog(); });
-$('change').addEventListener('click', () => {
+function swapRoster(){
   try { localStorage.removeItem(STORE); } catch(e){}
   location.reload();
-});
+}
 
-/* ---------- 起動 ---------- */
+/* ===================== 起動 ===================== */
 (function init(){
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch(e){}
-  if (saved && saved.p && saved.p.length) bootScan(saved);
+  if (saved && saved.p && saved.p.length){ boot(saved); }
+  else { $('replacenote').hidden = true; }
 })();
+window.addEventListener('resize', layoutMasks);
 </script>
+</body>
+</html>
