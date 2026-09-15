@@ -66,6 +66,8 @@
   ul.log li span:last-child{color:var(--mute); white-space:nowrap;}
 
   .bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:18px;}
+  .raw{font-size:12px; color:var(--mute); margin:8px 0 0; min-height:1.4em;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all;}
   .privacy{font-size:12px; color:var(--mute); border-top:1px solid var(--faint); margin-top:26px; padding-top:12px;}
   .hidden{display:none}
 </style>
@@ -103,8 +105,12 @@
     <div class="guide"><div class="hole"></div><div class="cap">枠の中に名前を入れてください</div></div>
   </div>
   <div class="result" id="result"><div class="idle" id="idle">「カメラを起動する」を押してください</div></div>
+  <p class="raw" id="raw"></p>
 
-  <p style="margin-top:14px"><button id="startbtn">カメラを起動する</button></p>
+  <div class="bar" style="margin-top:12px">
+    <button id="startbtn">カメラを起動する</button>
+    <button class="ghost small hidden" id="next">次の名札へ</button>
+  </div>
 
   <div style="margin-top:22px">
     <h2>読めないときは、名前で探す</h2>
@@ -295,7 +301,9 @@ $('save').addEventListener('click', () => {
 /* =========================================================
    スキャン
    ========================================================= */
-let ROSTER=[], SEEN=new Map(), LAST=null, LASTCOUNT=0, BUSY=false, WORKER=null;
+let ROSTER=[], SEEN=new Map(), BUSY=false, WORKER=null;
+let RECENT=[];      // 直近5コマの照合結果（名前 または null）
+let SHOWN=null;     // いま画面に出している人
 
 function bootScan(payload){
   $('setup').classList.add('hidden');
@@ -363,10 +371,16 @@ async function loop(){
         const { data } = await WORKER.recognize(cv);
         const line = (data.text||'').split('\n').map(s=>s.trim()).filter(Boolean)[0] || '';
         const m = match(line);
-        if(!m){ LAST=null; LASTCOUNT=0; }
-        else {
-          if(LAST===m.name) LASTCOUNT++; else { LAST=m.name; LASTCOUNT=1; }
-          if(LASTCOUNT===2) show(m);       // 2コマ続けて同じ人なら確定
+        $('raw').textContent = 'いま読めている文字：' + (line || '—');
+
+        /* 直近5コマのうち2回同じ人なら確定する。
+           1コマ読み損ねても数え直しにならないので、途切れても前へ進む。
+           はっきり読めた（0.82以上）ときは1コマで確定。 */
+        RECENT.push(m ? m.name : null);
+        if (RECENT.length > 5) RECENT.shift();
+        if (m && m.name !== SHOWN){
+          const hits = RECENT.filter(x => x === m.name).length;
+          if (hits >= 2 || m.s >= 0.82){ SHOWN = m.name; show(m); }
         }
       }
     }catch(e){ /* 1コマ失敗しても続ける */ }
@@ -385,8 +399,15 @@ function show(m){
     <div class="who">${m.name}</div>
     <div class="meta">${m.group}列：${done} / ${total} 枚目</div>`;
   if(navigator.vibrate) navigator.vibrate(60);
+  $('next').classList.remove('hidden');
   renderLog();
 }
+
+/* 同じ名札をもう一度読ませたいときの逃げ道 */
+$('next').addEventListener('click', () => {
+  SHOWN = null; RECENT = [];
+  $('result').innerHTML = '<div class="idle">枠の中に名札を入れてください</div>';
+});
 
 function renderLog(){
   if(!SEEN.size){ $('loghost').innerHTML=''; return; }
