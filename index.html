@@ -183,6 +183,27 @@ body.work{overflow:hidden;}
   display:flex; align-items:baseline;}
 .hitrow .cl span{font-size:15px; font-family:var(--sans); margin-left:2px;}
 
+/* 足りない名札 */
+.sumbox{ border-bottom:1px solid var(--ink); padding:14px 20px 16px; }
+.sumrow{ display:flex; justify-content:space-between; align-items:baseline; }
+.sumrow .k{ font-size:13px; color:var(--sub); }
+.sumrow .v{ font-family:var(--mono); font-size:15px; }
+.sumrow.big{ margin-top:6px; }
+.sumrow.big .k{ font-size:15px; font-weight:700; color:var(--ink); }
+.sumrow.big .v{ font-family:var(--num); font-size:38px; font-weight:700; line-height:1.1;
+  font-variant-numeric:tabular-nums; }
+.v.hot{ color:var(--accent); }
+.v.ok{ color:var(--sub); }
+.copybtn{ width:calc(100% - 40px); margin:16px 20px 6px; height:60px; background:var(--ink); color:#fff;
+  font-size:17px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.copybtn:active{ background:var(--press); }
+.pv{ margin:8px 20px 18px; border:1px solid var(--hair); background:#F7F6F2; }
+.pv .pvh{ font-size:11px; color:var(--sub); padding:7px 12px 0; letter-spacing:.06em; }
+.pv pre{ margin:4px 0 0; padding:0 12px 11px; font-family:var(--mono);
+  font-size:11.5px; line-height:1.75; white-space:pre-wrap; word-break:break-all; color:var(--ink); }
+.alldone{ padding:46px 20px; text-align:center; }
+.alldone .ad1{ font-size:24px; font-weight:700; }
+.alldone .ad2{ font-size:13px; color:var(--sub); margin-top:8px; }
 .tabs{display:flex; border-bottom:1px solid var(--ink);}
 .tabs button{flex:1 1 0; height:48px; font-size:15px; font-weight:700; color:var(--sub);}
 .tabs button[aria-selected="true"]{background:var(--ink); color:var(--paper);}
@@ -645,6 +666,9 @@ function openMenu(){
     <button class="menurow" id="mList">
       <span><span class="t">読み取った名札の一覧</span><span class="s">今 ${SEEN.size} 枚 · 列ごとの残りも確認</span></span>
       <span class="arrow">→</span></button>
+    <button class="menurow" id="mMiss">
+      <span><span class="t">足りない名札を出す</span><span class="s">まだ見つかっていない ${ROSTER.length - SEEN.size} 人</span></span>
+      <span class="arrow">→</span></button>
     <button class="menurow" id="mSwap">
       <span><span class="t">座席表を入れ替える</span><span class="s">いま：${TITLE} / ${ROSTER.length}人</span></span>
       <span class="arrow">→</span></button>
@@ -655,6 +679,7 @@ function openMenu(){
   `, () => {
     $('mSearch').onclick = openSearch;
     $('mList').onclick   = openList;
+    $('mMiss').onclick   = openMissing;
     $('mSwap').onclick   = swapRoster;
     $('mClear').onclick  = () => { SEEN.clear(); refreshHeader(); updateTotal(); openMenu(); };
     $('mRaw').onclick    = () => { $('mRaw').textContent = '読めている文字：' + (RAWTEXT || '—'); };
@@ -716,6 +741,71 @@ function openList(){
     };
     $('tCol').onclick = () => set('col');
     $('tOrd').onclick = () => set('order');
+  });
+}
+
+/* ---------- 足りない名札 ----------
+   名簿にいるのに、まだ一度も読み取っていない人を列ごとに並べる。
+   チャットへ貼れるよう、列ごとに1行の文章にしてコピーできるようにする。 */
+function missingByCol(){
+  const out = [];
+  for (const g of colsOf()){
+    const names = ROSTER.filter(p => p.g === g && !SEEN.has(p.n)).map(p => p.n);
+    if (names.length) out.push([g, names]);
+  }
+  return out;
+}
+function missingText(){
+  const list = missingByCol();
+  const n = list.reduce((a,[,names]) => a + names.length, 0);
+  return `足りない名札 ${n}枚（${TITLE}）\n\n`
+       + list.map(([g,names]) => `${g}列：${names.join('／')}`).join('\n');
+}
+function openMissing(){
+  const list = missingByCol();
+  const n = list.reduce((a,[,names]) => a + names.length, 0);
+  const head = `
+    <div class="sumbox">
+      <div class="sumrow"><span class="k">読み取り済み</span>
+        <span class="v">${SEEN.size} / ${ROSTER.length} 枚</span></div>
+      <div class="sumrow big"><span class="k">足りない名札</span>
+        <span class="v ${n ? 'hot' : 'ok'}">${n} 枚</span></div>
+    </div>`;
+  if (!n){
+    openSheet(`足りない名札 0`, head + `
+      <div class="alldone">
+        <div class="ad1">全員そろっています</div>
+        <div class="ad2">${ROSTER.length}人分の名札がすべて見つかりました。</div>
+      </div>`);
+    return;
+  }
+  const rows = list.map(([g,names]) =>
+    `<div class="grouphd"><span>${g}列</span><span class="n">${names.length}人</span></div>`
+    + names.map(x => `<div class="namerow"><span>${x}</span></div>`).join('')).join('');
+  openSheet(`足りない名札 ${n}`, head + `
+    <button class="copybtn" id="cpbtn">この一覧をコピーする</button>
+    <div class="pv"><div class="pvh">コピーされる文章</div><pre id="cptext"></pre></div>
+    ${rows}
+    <p class="note">名札の束を全部スキャンし終えたら、ここに残った人が「名札が見つからなかった人」です。</p>
+  `, () => {
+    const text = missingText();
+    $('cptext').textContent = text;
+    $('cpbtn').addEventListener('click', async () => {
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; }
+      catch(e){
+        /* clipboard が使えない端末向けの逃げ道 */
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;';
+          document.body.appendChild(ta); ta.select();
+          ok = document.execCommand('copy'); ta.remove();
+        }catch(e2){ ok = false; }
+      }
+      $('cpbtn').textContent = ok ? 'コピーしました' : '下の文章を長押しでコピーしてください';
+      if (ok && navigator.vibrate) navigator.vibrate(40);
+      setTimeout(() => { $('cpbtn').textContent = 'この一覧をコピーする'; }, 2200);
+    });
   });
 }
 
